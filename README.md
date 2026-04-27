@@ -1,6 +1,6 @@
 #  **Basic Chatbot (Full-Stack Chatbot Boilerplate — FastAPI + JavaScript UI)**
 
-A minimal full-stack chatbot starter template with a **FastAPI backend** (powered by OpenRouter's hosted LLMs) and a **React + Vite frontend**.
+A minimal full-stack chatbot starter template with a **FastAPI backend** (powered by Cloudflare Workers AI) and a **React + Vite frontend**.
 The backend exposes a simple `/chat` API, and the frontend provides a clean chat interface for interacting with the bot. Lightweight, extendable, and perfect for swapping in other LLMs, RAG systems, or NLP pipelines.
 
 **Live Demo:** [https://basic-chatbot-xi.vercel.app](https://basic-chatbot-xi.vercel.app)
@@ -54,11 +54,13 @@ pip install -r requirements.txt
 Create a `.env` file inside `chatbot-backend/`:
 
 ```
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+CLOUDFLARE_API_KEY=your_cloudflare_api_token_here
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
 ```
 
-Get a free key from [OpenRouter](https://openrouter.ai/keys). The default model
-is `meta-llama/llama-3.3-70b-instruct:free`.
+Get a free API token (with Workers AI permission) and find your Account ID at
+[Cloudflare Dashboard](https://dash.cloudflare.com). The default model is
+`@cf/meta/llama-3.1-8b-instruct`.
 
 ### **Run the FastAPI server**
 
@@ -158,8 +160,8 @@ The goal was to create a **clean, minimal chatbot architecture** that:
 sequenceDiagram
     User->>Frontend: Enter message in chat box
     Frontend->>Backend: POST /chat { user_message }
-    Backend->>OpenRouter: chat.completions.create(user_message)
-    OpenRouter->>Backend: Model response
+    Backend->>Cloudflare: chat.completions.create(user_message)
+    Cloudflare->>Backend: Model response
     Backend->>Frontend: JSON { response }
     Frontend->>User: Render bot message in UI
 ```

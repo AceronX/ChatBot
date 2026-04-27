@@ -11,27 +11,28 @@ from pydantic import BaseModel, Field
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_API_KEY:
+CLOUDFLARE_API_KEY = os.getenv("CLOUDFLARE_API_KEY")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+if not CLOUDFLARE_API_KEY or not CLOUDFLARE_ACCOUNT_ID:
     raise EnvironmentError(
-        "OPENROUTER_API_KEY is not set. Create a .env file in chatbot-backend/ "
-        "with: OPENROUTER_API_KEY=your_key_here (see .env.example)."
+        "CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID must both be set in "
+        "chatbot-backend/.env (see .env.example)."
     )
 
 # --- Model Initialization ---
-MODEL_NAME = os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
+MODEL_NAME = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
 try:
     client = OpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=CLOUDFLARE_API_KEY,
+        base_url=f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
     )
 except Exception as e:
-    raise RuntimeError(f"Failed to initialize OpenRouter client: {e}") from e
+    raise RuntimeError(f"Failed to initialize Cloudflare client: {e}") from e
 
 # --- FastAPI App ---
 app = FastAPI(
     title="AI Chatbot API",
-    description="API for interacting with an OpenRouter-hosted LLM.",
+    description="API for interacting with a Cloudflare Workers AI LLM.",
     version="1.0.0",
 )
 
