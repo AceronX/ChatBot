@@ -19,7 +19,7 @@ if not OPENROUTER_API_KEY:
     )
 
 # --- Model Initialization ---
-MODEL_NAME = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+MODEL_NAME = os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
 try:
     client = OpenAI(
         api_key=OPENROUTER_API_KEY,
