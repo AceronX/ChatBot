@@ -68,6 +68,7 @@ async def chat(chat_input: ChatInput):
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": chat_input.user_message}],
+            extra_body={"provider": {"ignore": ["Venice"]}},
         )
     except Exception:
         logger.exception("Error generating content")
