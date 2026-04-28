@@ -3,7 +3,47 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
+
+function BotMessage({ text }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ node, inline, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const codeString = String(children).replace(/\n$/, '');
+          const isShort = !codeString.includes('\n') && codeString.length < 40;
+
+          if (!inline && !isShort) {
+            return (
+              <div className="code-block-wrapper">
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match ? match[1] : undefined}
+                  PreTag="div"
+                  {...props}
+                >
+                  {codeString}
+                </SyntaxHighlighter>
+              </div>
+            );
+          }
+          return <span {...props}>{children}</span>;
+        },
+        a({ href, children }) {
+          return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 function App() {
   const [userInput, setUserInput] = useState('');
@@ -130,7 +170,9 @@ function App() {
           <div className="chat-window" ref={chatWindowRef} aria-live="polite">
             {chatLog.map((message, index) => (
               <div key={index} className={`message ${message.type}`}>
-                {message.text}
+                {message.type === 'bot'
+                  ? <BotMessage text={message.text} />
+                  : message.text}
               </div>
             ))}
             {loading && (
