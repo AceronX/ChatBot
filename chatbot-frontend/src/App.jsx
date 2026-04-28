@@ -1,9 +1,76 @@
-// Top of App.jsx
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
+
+function CopyButton({ code }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button className="copy-btn" onClick={handleCopy}>
+      {copied ? 'Copied!' : 'Copy code'}
+    </button>
+  );
+}
+
+function MarkdownMessage({ text }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ node, inline, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const code = String(children).replace(/\n$/, '');
+          if (!inline && match) {
+            return (
+              <div className="code-block-wrapper">
+                <CopyButton code={code} />
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match[1]}
+                  PreTag="div"
+                  {...props}
+                >
+                  {code}
+                </SyntaxHighlighter>
+              </div>
+            );
+          }
+          if (!inline) {
+            return (
+              <div className="code-block-wrapper">
+                <CopyButton code={code} />
+                <SyntaxHighlighter
+                  style={oneDark}
+                  PreTag="div"
+                  {...props}
+                >
+                  {code}
+                </SyntaxHighlighter>
+              </div>
+            );
+          }
+          return <code className={className} {...props}>{children}</code>;
+        },
+        a({ href, children }) {
+          return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 function App() {
   const [userInput, setUserInput] = useState('');
@@ -46,9 +113,7 @@ function App() {
     const trimmedInput = userInput.trim();
     if (!trimmedInput || loading) return;
 
-    const userMessage = { type: 'user', text: trimmedInput };
-    setChatLog((prev) => [...prev, userMessage]);
-
+    setChatLog((prev) => [...prev, { type: 'user', text: trimmedInput }]);
     setUserInput('');
     setLoading(true);
 
@@ -84,9 +149,7 @@ function App() {
         ...prev,
         {
           type: 'error',
-          text: `Error: ${
-            error.message || 'Could not connect to the bot. Please try again.'
-          }`,
+          text: `Error: ${error.message || 'Could not connect to the bot. Please try again.'}`,
         },
       ]);
     } finally {
@@ -98,11 +161,10 @@ function App() {
   return (
     <div className="App">
       <div className="app-shell">
-        {/* Left visual / info panel */}
         <aside className="side-panel left-panel">
           <h2>AI Chat Assistant</h2>
           <p>
-            A minimal full-stack chatbot built with React and FastAPI. 
+            A minimal full-stack chatbot built with React and FastAPI.
             Ask questions, test prompts, or plug in your own backend logic.
           </p>
           <div className="stats-card">
@@ -115,7 +177,6 @@ function App() {
           </div>
         </aside>
 
-        {/* Center chat panel */}
         <main className="chat-panel">
           <header className="chat-header">
             <div className="chat-title-group">
@@ -130,7 +191,9 @@ function App() {
           <div className="chat-window" ref={chatWindowRef} aria-live="polite">
             {chatLog.map((message, index) => (
               <div key={index} className={`message ${message.type}`}>
-                {message.text}
+                {message.type === 'bot'
+                  ? <MarkdownMessage text={message.text} />
+                  : message.text}
               </div>
             ))}
             {loading && (
@@ -154,13 +217,12 @@ function App() {
           </form>
         </main>
 
-        {/* Right visual / tips panel */}
         <aside className="side-panel right-panel">
           <h3>Try these prompts</h3>
           <ul className="prompt-list">
-            <li>“Summarize this project in 3 bullet points.”</li>
-            <li>“Explain this like I’m 12 years old.”</li>
-            <li>“Give me 3 ideas to improve this chatbot.”</li>
+            <li>"Summarize this project in 3 bullet points."</li>
+            <li>"Explain this like I'm 12 years old."</li>
+            <li>"Give me 3 ideas to improve this chatbot."</li>
           </ul>
           <div className="gradient-card">
             <p>
