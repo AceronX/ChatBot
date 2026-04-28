@@ -62,11 +62,10 @@ function App() {
     const trimmedInput = userInput.trim();
     if (!trimmedInput || loading) return;
 
-    // Snapshot the index of the bot message we're about to add.
-    // Written to a ref so the stream loop always reads the current value
-    // regardless of React batching or closure timing.
+    // Insert user message and empty bot bubble in one update.
+    // Capture botIndex in a ref so the stream loop always has the right index.
     setChatLog((prev) => {
-      botIndexRef.current = prev.length + 1; // +1 because user message is inserted first
+      botIndexRef.current = prev.length + 1; // +1 because user message is first
       return [
         ...prev,
         { type: 'user', text: trimmedInput },
@@ -78,7 +77,7 @@ function App() {
     setLoading(true);
     userAbortedRef.current = false;
 
-    // Create a fresh AbortController for this request
+    // Fresh AbortController for this request
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -104,8 +103,8 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let streamDone = false;
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -122,7 +121,7 @@ function App() {
           if (!line.startsWith('data:')) continue;
 
           const raw = line.slice('data:'.length).trim();
-          if (raw === '[DONE]') break;
+          if (raw === '[DONE]') { streamDone = true; break; }
 
           let parsed;
           try {
@@ -147,6 +146,9 @@ function App() {
             });
           }
         }
+
+        // [DONE] received — no need for another reader.read()
+        if (streamDone) break;
       }
     } catch (error) {
       if (error.name === 'AbortError' && userAbortedRef.current) {
@@ -231,12 +233,8 @@ function App() {
                   )}
               </div>
             ))}
-            {/* "Thinking" indicator only before the first chunk arrives */}
-            {loading &&
-              chatLog[chatLog.length - 1]?.type === 'bot' &&
-              chatLog[chatLog.length - 1]?.text === '' && (
-                <div className="loading-indicator">Bot is thinking...</div>
-              )}
+            {/* "Thinking" indicator removed — the blinking cursor on the empty
+                bot bubble is sufficient feedback before the first chunk arrives */}
           </div>
 
           <form className="chat-form" onSubmit={handleSubmit}>

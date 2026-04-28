@@ -35,12 +35,11 @@
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.7fr) minmax(0, 1.1fr);
   gap: 24px;
-  /* Give the shell a fixed height so the chat panel can scroll internally */
+  /* Fixed height so the chat window scrolls internally instead of the page */
   height: calc(100vh - 48px);
   align-items: stretch;
   margin: 0 auto;
 }
-
 
 /* side panels */
 .side-panel {
@@ -313,7 +312,6 @@
   }
 
   .chat-panel {
-    /* Give the chat panel a fixed height on mobile so it scrolls internally */
     height: 70vh;
   }
 
