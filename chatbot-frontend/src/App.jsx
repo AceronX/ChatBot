@@ -1,4 +1,3 @@
-// Top of App.jsx
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -9,19 +8,22 @@ function App() {
   const [userInput, setUserInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const chatWindowRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Load chat history from localStorage on mount
   useEffect(() => {
     try {
-      const storedChatLog = localStorage.getItem('chatLog');
-      if (storedChatLog) setChatLog(JSON.parse(storedChatLog));
+      const stored = localStorage.getItem('chatLog');
+      if (stored) setChatLog(JSON.parse(stored));
     } catch (error) {
       console.error('Failed to load chat log from localStorage:', error);
     }
     inputRef.current?.focus();
   }, []);
 
+  // Auto-scroll and persist chat log on update
   useEffect(() => {
     if (chatWindowRef.current) {
       const { scrollHeight, clientHeight } = chatWindowRef.current;
@@ -39,16 +41,25 @@ function App() {
     }
   }, [chatLog]);
 
-  const handleInputChange = (event) => setUserInput(event.target.value);
+  // Close drawer on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setDrawerOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleInputChange = (e) => setUserInput(e.target.value);
+  const toggleDrawer = () => setDrawerOpen((prev) => !prev);
+  const closeDrawer = () => setDrawerOpen(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmedInput = userInput.trim();
     if (!trimmedInput || loading) return;
 
-    const userMessage = { type: 'user', text: trimmedInput };
-    setChatLog((prev) => [...prev, userMessage]);
-
+    setChatLog((prev) => [...prev, { type: 'user', text: trimmedInput }]);
     setUserInput('');
     setLoading(true);
 
@@ -84,9 +95,7 @@ function App() {
         ...prev,
         {
           type: 'error',
-          text: `Error: ${
-            error.message || 'Could not connect to the bot. Please try again.'
-          }`,
+          text: `Error: ${error.message || 'Could not connect to the bot. Please try again.'}`,
         },
       ]);
     } finally {
@@ -95,14 +104,80 @@ function App() {
     }
   };
 
+  const SidePanelContent = () => (
+    <>
+      <aside className="side-panel left-panel">
+        <h2>AI Chat Assistant</h2>
+        <p>
+          A minimal full-stack chatbot built with React and FastAPI.
+          Ask questions, test prompts, or plug in your own backend logic.
+        </p>
+        <div className="stats-card">
+          <h3>Session Info</h3>
+          <ul>
+            <li>Messages in chat: <span>{chatLog.length}</span></li>
+            <li>Backend: <span>FastAPI</span></li>
+            <li>Client: <span>React + Vite</span></li>
+          </ul>
+        </div>
+      </aside>
+
+      <aside className="side-panel right-panel">
+        <h3>Try these prompts</h3>
+        <ul className="prompt-list">
+          <li>"Summarize this project in 3 bullet points."</li>
+          <li>"Explain this like I'm 12 years old."</li>
+          <li>"Give me 3 ideas to improve this chatbot."</li>
+        </ul>
+        <div className="gradient-card">
+          <p>
+            This area can be used later for logs, model settings, or user
+            profile info.
+          </p>
+        </div>
+      </aside>
+    </>
+  );
+
   return (
     <div className="App">
+
+      {/* Mobile: dark overlay behind drawer */}
+      {drawerOpen && (
+        <div
+          className="drawer-overlay"
+          onClick={closeDrawer}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Mobile: slide-in drawer */}
+      <div
+        className={`drawer-panel${drawerOpen ? ' active' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Side menu"
+      >
+        <button
+          className="drawer-close"
+          onClick={closeDrawer}
+          aria-label="Close menu"
+        >
+          ✕
+        </button>
+        <div className="drawer-content">
+          <SidePanelContent />
+        </div>
+      </div>
+
+      {/* Main layout */}
       <div className="app-shell">
-        {/* Left visual / info panel */}
-        <aside className="side-panel left-panel">
+
+        {/* Left panel — desktop only */}
+        <aside className="side-panel left-panel desktop-only">
           <h2>AI Chat Assistant</h2>
           <p>
-            A minimal full-stack chatbot built with React and FastAPI. 
+            A minimal full-stack chatbot built with React and FastAPI.
             Ask questions, test prompts, or plug in your own backend logic.
           </p>
           <div className="stats-card">
@@ -119,6 +194,14 @@ function App() {
         <main className="chat-panel">
           <header className="chat-header">
             <div className="chat-title-group">
+              <button
+                className="hamburger-button"
+                onClick={toggleDrawer}
+                aria-label="Open menu"
+                aria-expanded={drawerOpen}
+              >
+                ☰
+              </button>
               <div className="chat-avatar">AI</div>
               <div>
                 <h1>AI Chat Assistant</h1>
@@ -154,13 +237,13 @@ function App() {
           </form>
         </main>
 
-        {/* Right visual / tips panel */}
-        <aside className="side-panel right-panel">
+        {/* Right panel — desktop only */}
+        <aside className="side-panel right-panel desktop-only">
           <h3>Try these prompts</h3>
           <ul className="prompt-list">
-            <li>“Summarize this project in 3 bullet points.”</li>
-            <li>“Explain this like I’m 12 years old.”</li>
-            <li>“Give me 3 ideas to improve this chatbot.”</li>
+            <li>"Summarize this project in 3 bullet points."</li>
+            <li>"Explain this like I'm 12 years old."</li>
+            <li>"Give me 3 ideas to improve this chatbot."</li>
           </ul>
           <div className="gradient-card">
             <p>
@@ -169,6 +252,7 @@ function App() {
             </p>
           </div>
         </aside>
+
       </div>
     </div>
   );
