@@ -273,3 +273,76 @@
     order: 1;
   }
 }
+
+/* ── Markdown bot message styles ── */
+.message.bot {
+  max-width: 85%;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.message.bot p {
+  margin: 0 0 8px;
+}
+
+.message.bot p:last-child {
+  margin-bottom: 0;
+}
+
+.message.bot ul,
+.message.bot ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.message.bot li {
+  margin-bottom: 3px;
+}
+
+.message.bot h1,
+.message.bot h2,
+.message.bot h3 {
+  margin: 8px 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.message.bot a {
+  color: #818cf8;
+  text-decoration: underline;
+}
+
+.message.bot table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 0.85rem;
+}
+
+.message.bot th,
+.message.bot td {
+  border: 1px solid var(--border-subtle);
+  padding: 5px 10px;
+  text-align: left;
+}
+
+.message.bot th {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+/* code block */
+.code-block-wrapper {
+  margin: 8px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* inline code */
+.message.bot code {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  padding: 0;
+}
