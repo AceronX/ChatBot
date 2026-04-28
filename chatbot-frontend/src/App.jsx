@@ -2,7 +2,7 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
 function App() {
@@ -11,6 +11,12 @@ function App() {
   const [loading, setLoading] = useState(false);
   const chatWindowRef = useRef(null);
   const inputRef = useRef(null);
+  // Holds the AbortController for the active stream so Stop can cancel it
+  const abortControllerRef = useRef(null);
+  // Track whether the abort was user-initiated (Stop) vs unexpected (network drop)
+  const userAbortedRef = useRef(false);
+  // Stable ref to the current bot message index — avoids stale-closure issues
+  const botIndexRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -22,12 +28,13 @@ function App() {
     inputRef.current?.focus();
   }, []);
 
+  // Scroll to bottom on every chatLog change.
+  // Use 'instant' while streaming so rapid updates don't queue up animations.
   useEffect(() => {
     if (chatWindowRef.current) {
-      const { scrollHeight, clientHeight } = chatWindowRef.current;
       chatWindowRef.current.scrollTo({
-        top: scrollHeight - clientHeight,
-        behavior: 'smooth',
+        top: chatWindowRef.current.scrollHeight,
+        behavior: loading ? 'instant' : 'smooth',
       });
     }
     if (chatLog.length > 0) {
@@ -37,26 +44,50 @@ function App() {
         console.error('Failed to save chat log to localStorage:', error);
       }
     }
-  }, [chatLog]);
+  }, [chatLog, loading]);
 
   const handleInputChange = (event) => setUserInput(event.target.value);
+
+  /** Cancel the in-flight stream (user-initiated) */
+  const handleStop = useCallback(() => {
+    userAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmedInput = userInput.trim();
     if (!trimmedInput || loading) return;
 
-    const userMessage = { type: 'user', text: trimmedInput };
-    setChatLog((prev) => [...prev, userMessage]);
+    // Snapshot the index of the bot message we're about to add.
+    // Written to a ref so the stream loop always reads the current value
+    // regardless of React batching or closure timing.
+    setChatLog((prev) => {
+      botIndexRef.current = prev.length + 1; // +1 because user message is inserted first
+      return [
+        ...prev,
+        { type: 'user', text: trimmedInput },
+        { type: 'bot', text: '' },
+      ];
+    });
 
     setUserInput('');
     setLoading(true);
+    userAbortedRef.current = false;
+
+    // Create a fresh AbortController for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_message: trimmedInput }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -70,26 +101,87 @@ function App() {
         throw new Error(errorDetail);
       }
 
-      const data = await response.json();
-      const botResponseText = data.response;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      if (typeof botResponseText !== 'string' || !botResponseText) {
-        throw new Error('Received invalid or empty response from bot.');
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE messages are separated by "\n\n"
+        const parts = buffer.split('\n\n');
+        // Keep the last (possibly incomplete) part in the buffer
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+
+          const raw = line.slice('data:'.length).trim();
+          if (raw === '[DONE]') break;
+
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            // Incomplete JSON fragment — skip, will be reassembled in buffer
+            continue;
+          }
+
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+
+          if (parsed.chunk) {
+            setChatLog((prev) => {
+              const updated = [...prev];
+              updated[botIndexRef.current] = {
+                ...updated[botIndexRef.current],
+                text: updated[botIndexRef.current].text + parsed.chunk,
+              };
+              return updated;
+            });
+          }
+        }
       }
-
-      setChatLog((prev) => [...prev, { type: 'bot', text: botResponseText }]);
     } catch (error) {
-      console.error('Error fetching chat response:', error);
-      setChatLog((prev) => [
-        ...prev,
-        {
-          type: 'error',
-          text: `Error: ${
-            error.message || 'Could not connect to the bot. Please try again.'
-          }`,
-        },
-      ]);
+      if (error.name === 'AbortError' && userAbortedRef.current) {
+        // User clicked Stop — keep partial text, append a visual marker
+        setChatLog((prev) => {
+          const updated = [...prev];
+          const current = updated[botIndexRef.current];
+          if (current) {
+            updated[botIndexRef.current] = {
+              ...current,
+              text: (current.text || '') + ' [stopped]',
+              type: 'bot',
+            };
+          }
+          return updated;
+        });
+      } else {
+        // Network drop, server error, or unexpected abort — show error bubble
+        console.error('Error fetching chat response:', error);
+        const message =
+          error.name === 'AbortError'
+            ? 'Connection lost. Please try again.'
+            : error.message || 'Could not connect to the bot. Please try again.';
+        setChatLog((prev) => {
+          const updated = [...prev];
+          updated[botIndexRef.current] = {
+            type: 'error',
+            text: `Error: ${message}`,
+          };
+          return updated;
+        });
+      }
     } finally {
+      abortControllerRef.current = null;
+      userAbortedRef.current = false;
       setLoading(false);
       inputRef.current?.focus();
     }
@@ -131,11 +223,20 @@ function App() {
             {chatLog.map((message, index) => (
               <div key={index} className={`message ${message.type}`}>
                 {message.text}
+                {/* Blinking cursor on the active bot message while streaming */}
+                {loading &&
+                  message.type === 'bot' &&
+                  index === chatLog.length - 1 && (
+                    <span className="streaming-cursor" aria-hidden="true" />
+                  )}
               </div>
             ))}
-            {loading && (
-              <div className="loading-indicator">Bot is thinking...</div>
-            )}
+            {/* "Thinking" indicator only before the first chunk arrives */}
+            {loading &&
+              chatLog[chatLog.length - 1]?.type === 'bot' &&
+              chatLog[chatLog.length - 1]?.text === '' && (
+                <div className="loading-indicator">Bot is thinking...</div>
+              )}
           </div>
 
           <form className="chat-form" onSubmit={handleSubmit}>
@@ -148,9 +249,20 @@ function App() {
               disabled={loading}
               aria-label="Chat message input"
             />
-            <button type="submit" disabled={loading}>
-              Send
-            </button>
+            {loading ? (
+              <button
+                type="button"
+                className="stop-btn"
+                onClick={handleStop}
+                aria-label="Stop generating"
+              >
+                Stop
+              </button>
+            ) : (
+              <button type="submit" disabled={loading}>
+                Send
+              </button>
+            )}
           </form>
         </main>
 
@@ -158,9 +270,9 @@ function App() {
         <aside className="side-panel right-panel">
           <h3>Try these prompts</h3>
           <ul className="prompt-list">
-            <li>“Summarize this project in 3 bullet points.”</li>
-            <li>“Explain this like I’m 12 years old.”</li>
-            <li>“Give me 3 ideas to improve this chatbot.”</li>
+            <li>"Summarize this project in 3 bullet points."</li>
+            <li>"Explain this like I'm 12 years old."</li>
+            <li>"Give me 3 ideas to improve this chatbot."</li>
           </ul>
           <div className="gradient-card">
             <p>

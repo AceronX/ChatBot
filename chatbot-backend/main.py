@@ -1,37 +1,41 @@
+import json
 import logging
 import os
+from typing import AsyncGenerator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel, Field
 
 # --- Configuration ---
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_API_KEY:
+CLOUDFLARE_API_KEY = os.getenv("CLOUDFLARE_API_KEY")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+if not CLOUDFLARE_API_KEY or not CLOUDFLARE_ACCOUNT_ID:
     raise EnvironmentError(
-        "OPENROUTER_API_KEY is not set. Create a .env file in chatbot-backend/ "
-        "with: OPENROUTER_API_KEY=your_key_here (see .env.example)."
+        "CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID must both be set in "
+        "chatbot-backend/.env (see .env.example)."
     )
 
 # --- Model Initialization ---
-MODEL_NAME = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+MODEL_NAME = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
 try:
     client = OpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url="https://openrouter.ai/api/v1",
+        api_key=CLOUDFLARE_API_KEY,
+        base_url=f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
     )
 except Exception as e:
-    raise RuntimeError(f"Failed to initialize OpenRouter client: {e}") from e
+    raise RuntimeError(f"Failed to initialize Cloudflare client: {e}") from e
 
 # --- FastAPI App ---
 app = FastAPI(
     title="AI Chatbot API",
-    description="API for interacting with an OpenRouter-hosted LLM.",
+    description="API for interacting with a Cloudflare Workers AI LLM.",
     version="1.0.0",
 )
 
@@ -63,7 +67,7 @@ async def health_check():
 
 @app.post("/chat", tags=["Chat"])
 async def chat(chat_input: ChatInput):
-    """Endpoint for chatting with the AI model."""
+    """Non-streaming endpoint for chatting with the AI model."""
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -77,3 +81,39 @@ async def chat(chat_input: ChatInput):
     if not text:
         raise HTTPException(status_code=502, detail="Model returned an empty response.")
     return {"response": text}
+
+
+async def _stream_chunks(user_message: str) -> AsyncGenerator[str, None]:
+    """Yield SSE-formatted chunks from the model stream (non-blocking)."""
+    try:
+        stream = await async_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": user_message}],
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                # SSE format: "data: <json>\n\n"
+                payload = json.dumps({"chunk": delta.content})
+                yield f"data: {payload}\n\n"
+        # Signal end of stream
+        yield "data: [DONE]\n\n"
+    except Exception:
+        logger.exception("Error during streaming")
+        error_payload = json.dumps({"error": "Error generating content."})
+        yield f"data: {error_payload}\n\n"
+
+
+@app.post("/chat/stream", tags=["Chat"])
+async def chat_stream(chat_input: ChatInput):
+    """Streaming endpoint — returns Server-Sent Events (SSE)."""
+    return StreamingResponse(
+        _stream_chunks(chat_input.user_message),
+        media_type="text/event-stream",
+        headers={
+            # Prevent proxies / browsers from buffering the stream
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
