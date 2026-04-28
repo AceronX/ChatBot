@@ -358,7 +358,7 @@
   }
 
   /* hide desktop side panels */
-  .desktop-only {
+  .app-shell .side-panel {
     display: none;
   }
 

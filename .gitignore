@@ -26,5 +26,4 @@ dist-ssr/
 .vscode/
 *.suo
 *.swp
-# .gitignore
 chatbot-backend/.env

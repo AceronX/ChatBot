@@ -1,7 +1,7 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 function App() {
@@ -49,6 +49,24 @@ function App() {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    document.body.style.overflow = drawerOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [drawerOpen]);
+
+  const hamburgerRef = useRef(null);
+  const drawerCloseRef = useRef(null);
+
+  // Focus management: move focus into drawer on open, return on close
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerCloseRef.current?.focus();
+    } else {
+      hamburgerRef.current?.focus();
+    }
+  }, [drawerOpen]);
 
   const handleInputChange = (e) => setUserInput(e.target.value);
   const toggleDrawer = () => setDrawerOpen((prev) => !prev);
@@ -104,39 +122,39 @@ function App() {
     }
   };
 
-  const SidePanelContent = () => (
-    <>
-      <aside className="side-panel left-panel">
-        <h2>AI Chat Assistant</h2>
-        <p>
-          A minimal full-stack chatbot built with React and FastAPI.
-          Ask questions, test prompts, or plug in your own backend logic.
-        </p>
-        <div className="stats-card">
-          <h3>Session Info</h3>
-          <ul>
-            <li>Messages in chat: <span>{chatLog.length}</span></li>
-            <li>Backend: <span>FastAPI</span></li>
-            <li>Client: <span>React + Vite</span></li>
-          </ul>
-        </div>
-      </aside>
-
-      <aside className="side-panel right-panel">
-        <h3>Try these prompts</h3>
-        <ul className="prompt-list">
-          <li>"Summarize this project in 3 bullet points."</li>
-          <li>"Explain this like I'm 12 years old."</li>
-          <li>"Give me 3 ideas to improve this chatbot."</li>
+  const LeftPanel = () => (
+    <aside className="side-panel left-panel">
+      <h2>AI Chat Assistant</h2>
+      <p>
+        A minimal full-stack chatbot built with React and FastAPI.
+        Ask questions, test prompts, or plug in your own backend logic.
+      </p>
+      <div className="stats-card">
+        <h3>Session Info</h3>
+        <ul>
+          <li>Messages in chat: <span>{chatLog.length}</span></li>
+          <li>Backend: <span>FastAPI</span></li>
+          <li>Client: <span>React + Vite</span></li>
         </ul>
-        <div className="gradient-card">
-          <p>
-            This area can be used later for logs, model settings, or user
-            profile info.
-          </p>
-        </div>
-      </aside>
-    </>
+      </div>
+    </aside>
+  );
+
+  const RightPanel = () => (
+    <aside className="side-panel right-panel">
+      <h3>Try these prompts</h3>
+      <ul className="prompt-list">
+        <li>"Summarize this project in 3 bullet points."</li>
+        <li>"Explain this like I'm 12 years old."</li>
+        <li>"Give me 3 ideas to improve this chatbot."</li>
+      </ul>
+      <div className="gradient-card">
+        <p>
+          This area can be used later for logs, model settings, or user
+          profile info.
+        </p>
+      </div>
+    </aside>
   );
 
   return (
@@ -160,13 +178,15 @@ function App() {
       >
         <button
           className="drawer-close"
+          ref={drawerCloseRef}
           onClick={closeDrawer}
           aria-label="Close menu"
         >
           ✕
         </button>
         <div className="drawer-content">
-          <SidePanelContent />
+          <LeftPanel />
+          <RightPanel />
         </div>
       </div>
 
@@ -174,21 +194,7 @@ function App() {
       <div className="app-shell">
 
         {/* Left panel — desktop only */}
-        <aside className="side-panel left-panel desktop-only">
-          <h2>AI Chat Assistant</h2>
-          <p>
-            A minimal full-stack chatbot built with React and FastAPI.
-            Ask questions, test prompts, or plug in your own backend logic.
-          </p>
-          <div className="stats-card">
-            <h3>Session Info</h3>
-            <ul>
-              <li>Messages in chat: <span>{chatLog.length}</span></li>
-              <li>Backend: <span>FastAPI</span></li>
-              <li>Client: <span>React + Vite</span></li>
-            </ul>
-          </div>
-        </aside>
+        <LeftPanel />
 
         {/* Center chat panel */}
         <main className="chat-panel">
@@ -196,6 +202,7 @@ function App() {
             <div className="chat-title-group">
               <button
                 className="hamburger-button"
+                ref={hamburgerRef}
                 onClick={toggleDrawer}
                 aria-label="Open menu"
                 aria-expanded={drawerOpen}
@@ -238,20 +245,7 @@ function App() {
         </main>
 
         {/* Right panel — desktop only */}
-        <aside className="side-panel right-panel desktop-only">
-          <h3>Try these prompts</h3>
-          <ul className="prompt-list">
-            <li>"Summarize this project in 3 bullet points."</li>
-            <li>"Explain this like I'm 12 years old."</li>
-            <li>"Give me 3 ideas to improve this chatbot."</li>
-          </ul>
-          <div className="gradient-card">
-            <p>
-              This area can be used later for logs, model settings, or user
-              profile info.
-            </p>
-          </div>
-        </aside>
+        <RightPanel />
 
       </div>
     </div>
