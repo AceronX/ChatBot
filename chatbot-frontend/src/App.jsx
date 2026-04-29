@@ -2,15 +2,22 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
 function App() {
   const [userInput, setUserInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(null); // null = closed, 'left' or 'right'
   const chatWindowRef = useRef(null);
   const inputRef = useRef(null);
+  // Holds the AbortController for the active stream so Stop can cancel it
+  const abortControllerRef = useRef(null);
+  // Track whether the abort was user-initiated (Stop) vs unexpected (network drop)
+  const userAbortedRef = useRef(false);
+  // Stable ref to the current bot message index — avoids stale-closure issues
+  const botIndexRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -22,41 +29,74 @@ function App() {
     inputRef.current?.focus();
   }, []);
 
+  // Scroll to bottom on every chatLog change.
+  // Use 'instant' while streaming so rapid updates don't queue up animations.
   useEffect(() => {
     if (chatWindowRef.current) {
-      const { scrollHeight, clientHeight } = chatWindowRef.current;
       chatWindowRef.current.scrollTo({
-        top: scrollHeight - clientHeight,
-        behavior: 'smooth',
+        top: chatWindowRef.current.scrollHeight,
+        behavior: loading ? 'instant' : 'smooth',
       });
     }
-    if (chatLog.length > 0) {
-      try {
-        localStorage.setItem('chatLog', JSON.stringify(chatLog));
-      } catch (error) {
-        console.error('Failed to save chat log to localStorage:', error);
-      }
+  }, [chatLog, loading]);
+
+  // Persist chat log to localStorage — only when NOT streaming.
+  // During streaming, chatLog updates on every chunk and localStorage.setItem
+  // is synchronous, which would block the main thread and make the typewriter
+  // effect feel janky. We save once when the stream finishes.
+  useEffect(() => {
+    // Don't persist while streaming — wait until it finishes
+    if (loading) return;
+    if (chatLog.length === 0) return;
+
+    try {
+      localStorage.setItem('chatLog', JSON.stringify(chatLog));
+    } catch (error) {
+      console.error('Failed to save chat log to localStorage:', error);
     }
-  }, [chatLog]);
+  }, [chatLog, loading]);
 
   const handleInputChange = (event) => setUserInput(event.target.value);
+
+  /** Cancel the in-flight stream (user-initiated) */
+  const handleStop = useCallback(() => {
+    userAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmedInput = userInput.trim();
     if (!trimmedInput || loading) return;
 
-    const userMessage = { type: 'user', text: trimmedInput };
-    setChatLog((prev) => [...prev, userMessage]);
+    // Insert user message and empty bot bubble in one update.
+    // Capture botIndex in a ref so the stream loop always has the right index.
+    setChatLog((prev) => {
+      botIndexRef.current = prev.length + 1; // +1 because user message is first
+      return [
+        ...prev,
+        { type: 'user', text: trimmedInput },
+        { type: 'bot', text: '' },
+      ];
+    });
 
     setUserInput('');
     setLoading(true);
+    userAbortedRef.current = false;
+
+    // Fresh AbortController for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_message: trimmedInput }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -70,36 +110,102 @@ function App() {
         throw new Error(errorDetail);
       }
 
-      const data = await response.json();
-      const botResponseText = data.response;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamDone = false;
 
-      if (typeof botResponseText !== 'string' || !botResponseText) {
-        throw new Error('Received invalid or empty response from bot.');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE messages are separated by "\n\n"
+        const parts = buffer.split('\n\n');
+        // Keep the last (possibly incomplete) part in the buffer
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+
+          const raw = line.slice('data:'.length).trim();
+          if (raw === '[DONE]') { streamDone = true; break; }
+
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            // Incomplete JSON fragment — skip, will be reassembled in buffer
+            continue;
+          }
+
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+
+          if (parsed.chunk) {
+            setChatLog((prev) => {
+              const updated = [...prev];
+              updated[botIndexRef.current] = {
+                ...updated[botIndexRef.current],
+                text: updated[botIndexRef.current].text + parsed.chunk,
+              };
+              return updated;
+            });
+          }
+        }
+
+        // [DONE] received — no need for another reader.read()
+        if (streamDone) break;
       }
-
-      setChatLog((prev) => [...prev, { type: 'bot', text: botResponseText }]);
     } catch (error) {
-      console.error('Error fetching chat response:', error);
-      setChatLog((prev) => [
-        ...prev,
-        {
-          type: 'error',
-          text: `Error: ${
-            error.message || 'Could not connect to the bot. Please try again.'
-          }`,
-        },
-      ]);
+      if (error.name === 'AbortError' && userAbortedRef.current) {
+        // User clicked Stop — keep partial text, append a visual marker
+        setChatLog((prev) => {
+          const updated = [...prev];
+          const current = updated[botIndexRef.current];
+          if (current) {
+            updated[botIndexRef.current] = {
+              ...current,
+              text: (current.text || '') + ' [stopped]',
+              type: 'bot',
+            };
+          }
+          return updated;
+        });
+      } else {
+        // Network drop, server error, or unexpected abort — show error bubble
+        console.error('Error fetching chat response:', error);
+        const message =
+          error.name === 'AbortError'
+            ? 'Connection lost. Please try again.'
+            : error.message || 'Could not connect to the bot. Please try again.';
+        setChatLog((prev) => {
+          const updated = [...prev];
+          updated[botIndexRef.current] = {
+            type: 'error',
+            text: `Error: ${message}`,
+          };
+          return updated;
+        });
+      }
     } finally {
+      abortControllerRef.current = null;
+      userAbortedRef.current = false;
       setLoading(false);
       inputRef.current?.focus();
     }
   };
 
+  const closeDrawer = () => setDrawerOpen(null);
+
   return (
     <div className="App">
       <div className="app-shell">
-        {/* Left visual / info panel */}
-        <aside className="side-panel left-panel">
+        {/* Left visual / info panel — desktop */}
+        <aside className="side-panel left-panel desktop-only">
           <h2>AI Chat Assistant</h2>
           <p>
             A minimal full-stack chatbot built with React and FastAPI. 
@@ -118,24 +224,43 @@ function App() {
         {/* Center chat panel */}
         <main className="chat-panel">
           <header className="chat-header">
+            {/* Hamburger menu — mobile only */}
+            <button
+              className="hamburger-btn"
+              onClick={() => setDrawerOpen('left')}
+              aria-label="Open menu"
+            >
+              <span className="hamburger-icon" />
+            </button>
             <div className="chat-title-group">
               <div className="chat-avatar">AI</div>
-              <div>
+              <div className="chat-title-text">
                 <h1>AI Chat Assistant</h1>
                 <p>Conversational interface connected to your FastAPI backend</p>
               </div>
             </div>
+            {/* Info button — mobile only */}
+            <button
+              className="info-btn"
+              onClick={() => setDrawerOpen('right')}
+              aria-label="View prompts"
+            >
+              ?
+            </button>
           </header>
 
           <div className="chat-window" ref={chatWindowRef} aria-live="polite">
             {chatLog.map((message, index) => (
               <div key={index} className={`message ${message.type}`}>
                 {message.text}
+                {/* Blinking cursor on the active bot message while streaming */}
+                {loading &&
+                  message.type === 'bot' &&
+                  index === chatLog.length - 1 && (
+                    <span className="streaming-cursor" aria-hidden="true" />
+                  )}
               </div>
             ))}
-            {loading && (
-              <div className="loading-indicator">Bot is thinking...</div>
-            )}
           </div>
 
           <form className="chat-form" onSubmit={handleSubmit}>
@@ -148,19 +273,30 @@ function App() {
               disabled={loading}
               aria-label="Chat message input"
             />
-            <button type="submit" disabled={loading}>
-              Send
-            </button>
+            {loading ? (
+              <button
+                type="button"
+                className="stop-btn"
+                onClick={handleStop}
+                aria-label="Stop generating"
+              >
+                Stop
+              </button>
+            ) : (
+              <button type="submit" disabled={loading}>
+                Send
+              </button>
+            )}
           </form>
         </main>
 
-        {/* Right visual / tips panel */}
-        <aside className="side-panel right-panel">
+        {/* Right visual / tips panel — desktop */}
+        <aside className="side-panel right-panel desktop-only">
           <h3>Try these prompts</h3>
           <ul className="prompt-list">
-            <li>“Summarize this project in 3 bullet points.”</li>
-            <li>“Explain this like I’m 12 years old.”</li>
-            <li>“Give me 3 ideas to improve this chatbot.”</li>
+            <li>"Summarize this project in 3 bullet points."</li>
+            <li>"Explain this like I'm 12 years old."</li>
+            <li>"Give me 3 ideas to improve this chatbot."</li>
           </ul>
           <div className="gradient-card">
             <p>
@@ -170,6 +306,51 @@ function App() {
           </div>
         </aside>
       </div>
+
+      {/* Mobile drawer overlay */}
+      <div
+        className={`drawer-overlay ${drawerOpen ? 'visible' : ''}`}
+        onClick={closeDrawer}
+      />
+
+      {/* Left drawer — mobile */}
+      <aside className={`drawer left-drawer ${drawerOpen === 'left' ? 'open' : ''}`}>
+        <button className="drawer-close" onClick={closeDrawer} aria-label="Close menu">
+          ×
+        </button>
+        <h2>AI Chat Assistant</h2>
+        <p>
+          A minimal full-stack chatbot built with React and FastAPI. 
+          Ask questions, test prompts, or plug in your own backend logic.
+        </p>
+        <div className="stats-card">
+          <h3>Session Info</h3>
+          <ul>
+            <li>Messages in chat: <span>{chatLog.length}</span></li>
+            <li>Backend: <span>FastAPI</span></li>
+            <li>Client: <span>React + Vite</span></li>
+          </ul>
+        </div>
+      </aside>
+
+      {/* Right drawer — mobile */}
+      <aside className={`drawer right-drawer ${drawerOpen === 'right' ? 'open' : ''}`}>
+        <button className="drawer-close" onClick={closeDrawer} aria-label="Close menu">
+          ×
+        </button>
+        <h3>Try these prompts</h3>
+        <ul className="prompt-list">
+          <li>"Summarize this project in 3 bullet points."</li>
+          <li>"Explain this like I'm 12 years old."</li>
+          <li>"Give me 3 ideas to improve this chatbot."</li>
+        </ul>
+        <div className="gradient-card">
+          <p>
+            This area can be used later for logs, model settings, or user
+            profile info.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }
