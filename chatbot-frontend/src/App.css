@@ -11,33 +11,36 @@
   --user-bubble: #0f766e;
   --bot-bubble: #1f2937;
   --error-bubble: #7f1d1d;
+  --drawer-width: 280px;
 }
 
 /* full page */
 .App {
-  min-height: 100vh;
+  height: 100vh;
   background: radial-gradient(circle at top, #1d2538 0, #020617 55%);
   color: var(--text-primary);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
   box-sizing: border-box;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
+  overflow: hidden;
 }
 
 /* 3-column shell */
 .app-shell {
-    width: 100%;
-  max-width: 1400px;   /* or just remove this line for full width */
+  width: 100%;
+  max-width: 1400px;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.7fr) minmax(0, 1.1fr);
   gap: 24px;
+  /* Fixed height so the chat window scrolls internally instead of the page */
+  height: calc(100vh - 48px);
   align-items: stretch;
-  margin: 0 auto;      /* keep it centered */
+  margin: 0 auto;
 }
-
 
 /* side panels */
 .side-panel {
@@ -131,20 +134,24 @@
   padding: 14px 18px;
   border-bottom: 1px solid var(--border-subtle);
   background: linear-gradient(135deg, #4f46e5, #2563eb);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .chat-title-group {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
 }
 
-.chat-header h1 {
+.chat-title-text h1 {
   margin: 0;
   font-size: 1.05rem;
 }
 
-.chat-header p {
+.chat-title-text p {
   margin: 2px 0 0;
   font-size: 0.8rem;
   color: rgba(249, 250, 251, 0.8);
@@ -162,6 +169,62 @@
   font-size: 0.8rem;
   font-weight: 600;
   color: #e5e7eb;
+  flex-shrink: 0;
+}
+
+/* Hamburger button — hidden on desktop */
+.hamburger-btn {
+  display: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hamburger-icon {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: #f9fafb;
+  position: relative;
+  margin: 0 auto;
+}
+
+.hamburger-icon::before,
+.hamburger-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #f9fafb;
+}
+
+.hamburger-icon::before {
+  top: -6px;
+}
+
+.hamburger-icon::after {
+  top: 6px;
+}
+
+/* Info button — hidden on desktop */
+.info-btn {
+  display: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid rgba(249, 250, 251, 0.6);
+  border-radius: 999px;
+  background: transparent;
+  color: #f9fafb;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 /* chat window */
@@ -198,13 +261,6 @@
   color: #fee2e2;
 }
 
-/* loading state */
-.loading-indicator {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-
 /* form */
 .chat-form {
   display: flex;
@@ -216,13 +272,14 @@
 
 .chat-form input {
   flex: 1;
-  padding: 9px 11px;
+  padding: 12px 14px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.6);
   background: #020617;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 1rem;
   outline: none;
+  min-height: 44px;
 }
 
 .chat-form input::placeholder {
@@ -235,16 +292,18 @@
 }
 
 .chat-form button {
-  padding: 0 18px;
+  padding: 0 20px;
   border-radius: 999px;
   border: none;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   background: var(--accent);
   color: #f9fafb;
   transition: transform 0.08s ease, box-shadow 0.08s ease,
     background 0.12s ease;
+  min-height: 44px;
+  min-width: 70px;
 }
 
 .chat-form button:hover:not(:disabled) {
@@ -259,17 +318,226 @@
   box-shadow: none;
 }
 
-/* responsive */
+/* Stop button — red variant shown while streaming */
+.chat-form .stop-btn {
+  padding: 0 20px;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: #dc2626;
+  color: #f9fafb;
+  transition: transform 0.08s ease, box-shadow 0.08s ease,
+    background 0.12s ease;
+  min-height: 44px;
+  min-width: 70px;
+}
+
+.chat-form .stop-btn:hover {
+  background: #b91c1c;
+  box-shadow: 0 10px 18px rgba(185, 28, 28, 0.45);
+  transform: translateY(-1px);
+}
+
+/* Blinking cursor shown at the end of a streaming bot message */
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--text-primary);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 0.8s step-start infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* Drawer overlay */
+.drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: none;
+}
+
+/* Drawer panels — mobile */
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: var(--drawer-width);
+  max-width: 85vw;
+  background: var(--bg-panel);
+  padding: 20px;
+  z-index: 101;
+  overflow-y: auto;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease, visibility 0.3s ease;
+  display: none;
+  /* Hide from keyboard and screen readers when closed */
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.right-drawer {
+  right: 0;
+  left: auto;
+  transform: translateX(100%);
+}
+
+.drawer.open {
+  transform: translateX(0);
+  /* Make visible and interactive when open */
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.drawer-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-close:hover {
+  color: var(--text-primary);
+}
+
+.drawer h2,
+.drawer h3 {
+  margin: 0 0 12px;
+  padding-right: 30px;
+}
+
+.drawer p {
+  margin: 0 0 16px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Desktop-only class — hidden on mobile */
+.desktop-only {
+  display: block;
+}
+
+/* ============================================
+   RESPONSIVE: Mobile (< 900px)
+   ============================================ */
 @media (max-width: 900px) {
+  .App {
+    height: 100vh;
+    min-height: auto;
+    padding: 0;
+    overflow: hidden;
+  }
+
   .app-shell {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 1fr;
+    height: 100vh;
+    gap: 0;
   }
 
-  .side-panel {
-    order: 3;
+  /* Hide desktop side panels on mobile */
+  .desktop-only {
+    display: none !important;
   }
 
+  /* Show hamburger and info buttons on mobile */
+  .hamburger-btn,
+  .info-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Chat panel full-width on mobile */
   .chat-panel {
-    order: 1;
+    border-radius: 0;
+    height: 100vh;
+  }
+
+  .chat-header {
+    padding: 10px 12px;
+  }
+
+  .chat-title-text h1 {
+    font-size: 0.95rem;
+  }
+
+  .chat-title-text p {
+    display: none;
+  }
+
+  .chat-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 0.7rem;
+  }
+
+  .chat-window {
+    padding: 12px;
+  }
+
+  .message {
+    max-width: 85%;
+    font-size: 0.9rem;
+  }
+
+  .chat-form {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .chat-form input {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+
+  /* Enable drawers on mobile */
+  .drawer-overlay {
+    display: none;
+  }
+
+  /* Drawer hidden by default on mobile */
+  .drawer {
+    display: none;
+  }
+
+  /* Only show drawer and overlay when open */
+  .drawer-overlay.visible {
+    display: block;
+  }
+
+  .drawer.open {
+    display: block;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Desktop (≥ 900px)
+   ============================================ */
+@media (min-width: 901px) {
+  /* Hide mobile-only elements on desktop */
+  .hamburger-btn,
+  .info-btn,
+  .drawer-overlay,
+  .drawer {
+    display: none !important;
   }
 }
